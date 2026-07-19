@@ -9,28 +9,27 @@ Jalankan dengan:
 """
 
 import os
+import re
 
 import joblib
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 from feature_engineering import build_features
+from preprocessing import clean_text
 
 # ----------------------------------------------------------------------------
 # KONFIGURASI HALAMAN
 # ----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Serenity | Deteksi Indikasi Depresi",
-    page_icon="🧠",
+    page_icon="✧",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Path dihitung relatif terhadap LOKASI FILE app.py ini (bukan terhadap
-# current working directory). Ini penting karena di Streamlit Community
-# Cloud, working directory selalu berada di ROOT repository meskipun
-# app.py berada di dalam subfolder.
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(BASE_DIR, "models")
+MODEL_DIR = "models"
 
 ARTIFACT_PATHS = {
     "tfidf": os.path.join(MODEL_DIR, "tfidf_vectorizer.pkl"),
@@ -46,111 +45,257 @@ CRISIS_KEYWORDS = [
 
 
 # ----------------------------------------------------------------------------
-# STYLING — palet colorful, tetap elegan (gradient teal -> violet -> coral)
+# STYLING — "Serenity" design system
 # ----------------------------------------------------------------------------
-CUSTOM_CSS = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap');
-
-:root {
-    --violet: #7c5cff;
-    --violet-deep: #5a3fd6;
-    --teal: #0fb8a3;
-    --coral: #ff6f61;
-    --gold: #f5a623;
-    --ink: #1a1b2e;
-    --ink-soft: #5a5c78;
-    --paper: #faf9ff;
-}
-
-html, body, [class*="css"] { font-family: 'Manrope', sans-serif; color: var(--ink); }
-
-.stApp {
-    background:
-        radial-gradient(circle at 8% -5%, rgba(124,92,255,0.14), transparent 40%),
-        radial-gradient(circle at 95% 0%, rgba(15,184,163,0.13), transparent 40%),
-        radial-gradient(circle at 50% 100%, rgba(255,111,97,0.08), transparent 45%),
-        var(--paper);
-}
-
-#MainMenu, footer, header {visibility: hidden;}
-.block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1180px; }
-
-h1, h2, h3 { font-family: 'Fraunces', serif; color: var(--ink); }
-
-/* Hero title gradient text */
-.hero-title {
-    font-family: 'Fraunces', serif;
-    font-weight: 600;
-    font-size: 3rem;
-    line-height: 1.1;
-    background: linear-gradient(100deg, var(--violet) 10%, var(--teal) 55%, var(--coral) 95%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: 0.6rem;
-}
-
-.hero-eyebrow {
-    font-size: 0.78rem; letter-spacing: 0.2em; text-transform: uppercase;
-    color: var(--violet-deep); font-weight: 800; margin-bottom: 0.7rem;
-}
-
-.hero-sub { font-size: 1.05rem; color: var(--ink-soft); line-height: 1.7; max-width: 680px; }
-
-/* Card container (native st.container border works, this styles it further) */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-    border-radius: 20px !important;
-    box-shadow: 0 16px 40px -20px rgba(90,63,214,0.25);
-}
-
-/* Buttons */
-.stButton > button {
-    background: linear-gradient(120deg, var(--violet), var(--violet-deep));
-    color: white; border: none; border-radius: 999px;
-    padding: 0.7rem 2rem; font-weight: 700; font-size: 0.95rem;
-    box-shadow: 0 10px 24px -8px rgba(90,63,214,0.5);
-    transition: transform 0.15s ease;
-}
-.stButton > button:hover { transform: translateY(-2px); color: white; }
-
-/* Text area */
-.stTextArea textarea {
-    border-radius: 14px !important;
-    border: 1.5px solid rgba(124,92,255,0.25) !important;
-    font-size: 1rem !important;
-}
-.stTextArea textarea:focus {
-    border-color: var(--violet) !important;
-    box-shadow: 0 0 0 3px rgba(124,92,255,0.15) !important;
-}
-
-/* Badge chips for "how it works" */
-.step-chip {
-    display: inline-flex; align-items: center; gap: 0.5rem;
-    background: white; border-radius: 14px; padding: 0.8rem 1rem;
-    margin-bottom: 0.6rem; width: 100%;
-    border: 1px solid rgba(26,27,46,0.06);
-    box-shadow: 0 4px 14px -8px rgba(26,27,46,0.15);
-}
-.step-num {
-    flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 0.85rem; color: white;
-}
-
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: linear-gradient(200deg, #241b45 0%, #1a1b2e 100%);
-}
-section[data-testid="stSidebar"] * { color: #ece9ff !important; }
-section[data-testid="stSidebar"] hr { border-color: rgba(236,233,255,0.15); }
-</style>
-"""
-
-
 def inject_css():
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Manrope:wght@300;400;500;600;700&display=swap');
+
+        :root {
+            --ink:        #14181f;
+            --ink-soft:    #4a5262;
+            --paper:      #f6f4ef;
+            --paper-deep: #eeebe2;
+            --deep-teal:  #1f3d3a;
+            --deep-teal-2:#2c524d;
+            --gold:       #b98d4f;
+            --gold-soft:  #d9bd8e;
+            --line:       rgba(20, 24, 31, 0.09);
+            --shadow:     0 20px 60px -25px rgba(20, 40, 38, 0.35);
+        }
+
+        html, body, [class*="css"]  {
+            font-family: 'Manrope', sans-serif;
+            color: var(--ink);
+        }
+
+        .stApp {
+            background:
+                radial-gradient(circle at 12% -10%, rgba(31,61,58,0.10), transparent 45%),
+                radial-gradient(circle at 100% 0%, rgba(185,141,79,0.10), transparent 40%),
+                var(--paper);
+        }
+
+        h1, h2, h3, .display-font {
+            font-family: 'Fraunces', serif;
+            font-weight: 500;
+            letter-spacing: -0.01em;
+            color: var(--ink);
+        }
+
+        #MainMenu, footer, header {visibility: hidden;}
+
+        .block-container {
+            padding-top: 2.2rem;
+            padding-bottom: 3rem;
+            max-width: 1180px;
+        }
+
+        /* ---------- HERO ---------- */
+        .hero-eyebrow {
+            font-family: 'Manrope', sans-serif;
+            font-size: 0.78rem;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: var(--gold);
+            font-weight: 700;
+            margin-bottom: 0.9rem;
+        }
+
+        .hero-title {
+            font-family: 'Fraunces', serif;
+            font-size: 3.1rem;
+            line-height: 1.08;
+            font-weight: 500;
+            color: var(--ink);
+            margin-bottom: 0.9rem;
+        }
+        .hero-title em {
+            font-style: italic;
+            color: var(--deep-teal);
+        }
+
+        .hero-sub {
+            font-size: 1.05rem;
+            color: var(--ink-soft);
+            max-width: 640px;
+            line-height: 1.7;
+            font-weight: 400;
+        }
+
+        .hero-divider {
+            width: 64px;
+            height: 2px;
+            background: linear-gradient(90deg, var(--gold), transparent);
+            margin: 1.6rem 0 1.6rem 0;
+        }
+
+        /* ---------- CARD ---------- */
+        .glass-card {
+            background: rgba(255,255,255,0.62);
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            padding: 2.1rem 2.3rem;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(6px);
+        }
+
+        .section-label {
+            font-size: 0.72rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--gold);
+            font-weight: 700;
+            margin-bottom: 0.4rem;
+        }
+
+        .section-title {
+            font-family: 'Fraunces', serif;
+            font-size: 1.5rem;
+            font-weight: 500;
+            margin-bottom: 0.3rem;
+        }
+
+        /* ---------- TEXTAREA ---------- */
+        .stTextArea textarea {
+            background: rgba(255,255,255,0.85) !important;
+            border: 1.5px solid var(--line) !important;
+            border-radius: 14px !important;
+            font-family: 'Manrope', sans-serif !important;
+            font-size: 1rem !important;
+            color: var(--ink) !important;
+            padding: 1rem 1.1rem !important;
+        }
+        .stTextArea textarea:focus {
+            border-color: var(--deep-teal) !important;
+            box-shadow: 0 0 0 3px rgba(31,61,58,0.12) !important;
+        }
+
+        /* ---------- BUTTON ---------- */
+        .stButton > button {
+            background: linear-gradient(135deg, var(--deep-teal), var(--deep-teal-2));
+            color: #f6f4ef;
+            border: none;
+            border-radius: 999px;
+            padding: 0.72rem 2.1rem;
+            font-family: 'Manrope', sans-serif;
+            font-weight: 600;
+            font-size: 0.95rem;
+            letter-spacing: 0.02em;
+            box-shadow: 0 12px 30px -10px rgba(31,61,58,0.55);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 36px -8px rgba(31,61,58,0.6);
+            color: #f6f4ef;
+        }
+
+        /* ---------- RESULT BADGES ---------- */
+        .result-card {
+            border-radius: 22px;
+            padding: 2rem 2.2rem;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--line);
+        }
+
+        .result-card.risk {
+            background: linear-gradient(160deg, #fdf3ef 0%, #f9e7e1 100%);
+            border-color: rgba(178, 84, 54, 0.25);
+        }
+        .result-card.safe {
+            background: linear-gradient(160deg, #f1f7f3 0%, #e6f0ea 100%);
+            border-color: rgba(31, 61, 58, 0.2);
+        }
+
+        .result-label {
+            font-family: 'Fraunces', serif;
+            font-size: 1.7rem;
+            font-weight: 600;
+            margin-bottom: 0.2rem;
+        }
+        .result-label.risk { color: #a3492c; }
+        .result-label.safe { color: var(--deep-teal); }
+
+        .result-meta { color: var(--ink-soft); font-size: 0.92rem; }
+
+        .prob-bar-track {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(20,24,31,0.08);
+            overflow: hidden;
+            margin: 0.9rem 0 0.3rem 0;
+        }
+        .prob-bar-fill {
+            height: 100%;
+            border-radius: 999px;
+        }
+        .prob-bar-fill.risk { background: linear-gradient(90deg, #d97757, #a3492c); }
+        .prob-bar-fill.safe { background: linear-gradient(90deg, var(--gold-soft), var(--deep-teal)); }
+
+        /* ---------- SIDEBAR ---------- */
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(185deg, var(--deep-teal) 0%, #16302d 100%);
+        }
+        section[data-testid="stSidebar"] * {
+            color: #eae6da !important;
+        }
+        section[data-testid="stSidebar"] .stMarkdown hr {
+            border-color: rgba(234,230,218,0.18);
+        }
+
+        .sb-title {
+            font-family: 'Fraunces', serif;
+            font-size: 1.4rem;
+            font-weight: 500;
+            color: #f6f4ef !important;
+            margin-bottom: 0.1rem;
+        }
+        .sb-caption {
+            font-size: 0.82rem;
+            color: rgba(234,230,218,0.65) !important;
+            letter-spacing: 0.05em;
+        }
+
+        .metric-pill {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(234,230,218,0.14);
+            border-radius: 14px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.6rem;
+        }
+        .metric-pill .m-value {
+            font-family: 'Fraunces', serif;
+            font-size: 1.3rem;
+            color: var(--gold-soft) !important;
+        }
+        .metric-pill .m-label {
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(234,230,218,0.6) !important;
+        }
+
+        .footnote {
+            font-size: 0.8rem;
+            color: var(--ink-soft);
+            line-height: 1.6;
+        }
+
+        .crisis-box {
+            border-left: 3px solid #a3492c;
+            background: rgba(163,73,44,0.06);
+            padding: 1rem 1.2rem;
+            border-radius: 10px;
+            margin-top: 1rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -194,33 +339,61 @@ def predict(text: str, bundle: dict):
 # ----------------------------------------------------------------------------
 def render_sidebar(bundle):
     with st.sidebar:
-        st.markdown("### 🧠 Serenity")
-        st.caption("MENTAL WELLNESS TEXT ANALYTICS")
-        st.divider()
+        st.markdown('<div class="sb-title">✧ Serenity</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sb-caption">MENTAL WELLNESS TEXT ANALYTICS</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("<hr/>", unsafe_allow_html=True)
 
-        st.write(
-            "Aplikasi ini menganalisis pola linguistik pada teks singkat "
-            "(gaya tweet) untuk memperkirakan kemungkinan indikasi depresi, "
-            "menggunakan model *stacking ensemble* yang dilatih pada gabungan "
-            "fitur TF-IDF dan fitur linguistik."
+        st.markdown(
+            """
+            <div class="footnote" style="color:rgba(234,230,218,0.75);">
+            Aplikasi ini menganalisis pola linguistik pada teks singkat
+            (gaya tweet) untuk memperkirakan kemungkinan indikasi depresi,
+            menggunakan model <em>stacking ensemble</em> yang dilatih pada
+            gabungan fitur TF‑IDF dan fitur linguistik.
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-        st.markdown("**RINGKASAN MODEL**")
+        st.markdown("<br/>", unsafe_allow_html=True)
+        st.markdown('<div class="sb-caption">RINGKASAN MODEL</div>', unsafe_allow_html=True)
 
         if bundle is not None:
             model_name = type(bundle["model"]).__name__
-            st.metric("Arsitektur Model", model_name)
-            st.metric("Sumber Fitur", "TF-IDF + Linguistik")
-            st.metric("Imbalance & Seleksi", "SMOTE + SelectKBest")
+            st.markdown(
+                f"""
+                <div class="metric-pill">
+                    <div class="m-value">{model_name}</div>
+                    <div class="m-label">Arsitektur Model</div>
+                </div>
+                <div class="metric-pill">
+                    <div class="m-value">TF-IDF + Linguistik</div>
+                    <div class="m-label">Sumber Fitur</div>
+                </div>
+                <div class="metric-pill">
+                    <div class="m-value">SMOTE + SelectKBest</div>
+                    <div class="m-label">Penanganan Imbalance & Seleksi Fitur</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         else:
             st.warning("Model belum dimuat. Lengkapi file di folder `models/`.")
 
-        st.divider()
-        st.markdown("**Disclaimer**")
-        st.caption(
-            "Alat ini bersifat eksploratif dan edukatif, bukan alat diagnosis "
-            "klinis. Hasil prediksi tidak menggantikan konsultasi dengan "
-            "tenaga profesional kesehatan mental."
+        st.markdown("<br/><hr/>", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="footnote" style="color:rgba(234,230,218,0.65);">
+            <strong style="color:#eae6da;">Disclaimer</strong><br/>
+            Alat ini bersifat eksploratif dan edukatif, <em>bukan</em>
+            alat diagnosis klinis. Hasil prediksi tidak menggantikan
+            konsultasi dengan tenaga profesional kesehatan mental.
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
 
@@ -238,84 +411,99 @@ def main():
 
     # ---------------- HERO ----------------
     st.markdown('<div class="hero-eyebrow">Analisis Teks · Kesehatan Mental</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-title">Dengarkan apa yang tersirat di balik kata</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="hero-title">Dengarkan apa yang<br/><em>tersirat</em> di balik kata.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="hero-divider"></div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="hero-sub">Tempelkan sebuah tweet atau tulisan singkat di bawah ini. '
-        'Model <b>stacking ensemble</b> kami — hasil kombinasi Logistic Regression, '
+        'Model <em>stacking ensemble</em> kami — hasil kombinasi Logistic Regression, '
         'SVM, XGBoost, dan CatBoost — akan menelaah pola bahasa dan nada emosional '
         'untuk memperkirakan kemungkinan indikasi depresi.</div>',
         unsafe_allow_html=True,
     )
 
-    st.write("")
-    st.write("")
+    st.markdown("<br/>", unsafe_allow_html=True)
 
     if missing:
-        st.warning("**Konfigurasi diperlukan** — beberapa file model belum ditemukan.")
         st.markdown(
-            "Letakkan file berikut di dalam folder `models/` pada direktori aplikasi ini "
-            "agar prediksi dapat berjalan:"
-        )
-        for m in missing:
-            st.code(ARTIFACT_PATHS[m], language=None)
-        st.caption(
-            "File-file ini dihasilkan dari notebook penelitian "
-            "(`tfidf_vectorizer.pkl`, `numeric_scaler.pkl`, `feature_selector.pkl`, "
-            "dan `best_model.pkl`)."
+            f"""
+            <div class="glass-card">
+                <div class="section-label">Konfigurasi Diperlukan</div>
+                <div class="section-title">Beberapa file model belum ditemukan</div>
+                <p class="footnote">
+                Letakkan file berikut di dalam folder <code>models/</code> pada direktori
+                aplikasi ini agar prediksi dapat berjalan:
+                </p>
+                <ul class="footnote">
+                {''.join(f"<li><code>{ARTIFACT_PATHS[m]}</code></li>" for m in missing)}
+                </ul>
+                <p class="footnote">
+                File-file ini dihasilkan dari notebook penelitian
+                (<code>tfidf_vectorizer.pkl</code>, <code>numeric_scaler.pkl</code>,
+                <code>feature_selector.pkl</code>, dan <code>best_model.pkl</code>).
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
         return
 
-    # ---------------- INPUT + INFO ----------------
-    left, right = st.columns([1.15, 0.85], gap="large")
+    # ---------------- INPUT CARD ----------------
+    left, right = st.columns([1.1, 0.9], gap="large")
 
     with left:
-        with st.container(border=True):
-            st.markdown("##### 📝 Langkah 1 — Tulis atau tempel teks")
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Langkah 01</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Tulis atau tempel teks</div>', unsafe_allow_html=True)
 
-            example_prompt = st.selectbox(
-                "Gunakan contoh (opsional)",
-                [
-                    "— Pilih contoh —",
-                    "I feel hopeless and nobody loves me.",
-                    "Had such a wonderful day at the beach with my family!",
-                    "I can't get out of bed anymore, everything feels pointless.",
-                    "Just finished a great workout, feeling energized and happy.",
-                ],
-            )
+        example_prompt = st.selectbox(
+            "Gunakan contoh (opsional)",
+            [
+                "— Pilih contoh —",
+                "I feel hopeless and nobody loves me.",
+                "Had such a wonderful day at the beach with my family!",
+                "I can't get out of bed anymore, everything feels pointless.",
+                "Just finished a great workout, feeling energized and happy.",
+            ],
+            label_visibility="collapsed",
+        )
 
-            default_text = "" if example_prompt == "— Pilih contoh —" else example_prompt
+        default_text = "" if example_prompt == "— Pilih contoh —" else example_prompt
 
-            user_text = st.text_area(
-                "Teks yang akan dianalisis",
-                value=default_text,
-                height=170,
-                placeholder="Contoh: 'I feel so tired of pretending everything is okay...'",
-                label_visibility="collapsed",
-            )
+        user_text = st.text_area(
+            "Teks",
+            value=default_text,
+            height=170,
+            placeholder="Contoh: 'I feel so tired of pretending everything is okay...'",
+            label_visibility="collapsed",
+        )
 
-            analyze_clicked = st.button("✨ Analisis Teks")
+        analyze_clicked = st.button("✧  Analisis Teks", use_container_width=False)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
-        with st.container(border=True):
-            st.markdown("##### ⚙️ Alur Analisis")
-
-            steps = [
-                ("1", "#7c5cff", "Pembersihan Teks", "Normalisasi, hapus URL/mention/emoji, stopword removal & lemmatization."),
-                ("2", "#0fb8a3", "Ekstraksi Fitur", "TF-IDF (1-3 gram) digabung fitur linguistik: panjang teks, huruf kapital, sentimen."),
-                ("3", "#f5a623", "Seleksi Fitur", "Pemilihan fitur paling informatif via mutual information."),
-                ("4", "#ff6f61", "Prediksi", "Model stacking ensemble menghasilkan probabilitas indikasi depresi."),
-            ]
-
-            for num, color, title, desc in steps:
-                col_a, col_b = st.columns([0.12, 0.88])
-                with col_a:
-                    st.markdown(
-                        f'<div class="step-num" style="background:{color};">{num}</div>',
-                        unsafe_allow_html=True,
-                    )
-                with col_b:
-                    st.markdown(f"**{title}**")
-                    st.caption(desc)
+        st.markdown('<div class="glass-card" style="height:100%;">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Bagaimana cara kerjanya</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">Alur Analisis</div>', unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="footnote">
+            <p><strong>1. Pembersihan teks</strong> — normalisasi, penghapusan
+            URL/mention/emoji, stopword removal, dan lemmatization.</p>
+            <p><strong>2. Ekstraksi fitur</strong> — representasi TF‑IDF (1–3 gram)
+            digabung dengan fitur linguistik (panjang teks, rasio huruf kapital,
+            polaritas &amp; subjektivitas sentimen).</p>
+            <p><strong>3. Seleksi fitur</strong> — pemilihan fitur paling informatif
+            melalui <em>mutual information</em>.</p>
+            <p><strong>4. Prediksi</strong> — model stacking ensemble menghasilkan
+            probabilitas indikasi depresi.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------------- RESULT ----------------
     if analyze_clicked:
@@ -325,38 +513,57 @@ def main():
             with st.spinner("Menelaah pola bahasa..."):
                 pred, prob, clean = predict(user_text, full_bundle)
 
-            st.write("")
+            st.markdown("<br/>", unsafe_allow_html=True)
             is_risk = pred == 1
+            css_class = "risk" if is_risk else "safe"
+            label_text = "Indikasi Depresi Terdeteksi" if is_risk else "Tidak Terindikasi Depresi"
+            icon = "◐" if is_risk else "✦"
+
             prob_pct = round(prob * 100, 1) if prob is not None else None
 
-            if is_risk:
-                st.error("### 😔 Indikasi Depresi Terdeteksi")
-            else:
-                st.success("### 🌤️ Tidak Terindikasi Depresi")
-
-            st.caption("Berdasarkan analisis pola linguistik dan sentimen pada teks yang diberikan.")
-
-            if prob_pct is not None:
-                col1, col2 = st.columns([0.7, 0.3])
-                with col1:
-                    st.progress(prob_pct / 100)
-                with col2:
-                    st.metric("Tingkat Keyakinan Model", f"{prob_pct}%")
+            st.markdown(
+                f"""
+                <div class="result-card {css_class}">
+                    <div class="result-label {css_class}">{icon}  {label_text}</div>
+                    <div class="result-meta">
+                        Berdasarkan analisis pola linguistik dan sentimen pada teks yang diberikan.
+                    </div>
+                    {f'''
+                    <div class="prob-bar-track">
+                        <div class="prob-bar-fill {css_class}" style="width:{prob_pct}%;"></div>
+                    </div>
+                    <div class="result-meta"><strong>{prob_pct}%</strong> tingkat keyakinan model</div>
+                    ''' if prob_pct is not None else ""}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             if is_risk and contains_crisis_language(user_text):
-                st.info(
-                    "**Catatan penting:** Jika kamu atau seseorang yang kamu kenal sedang "
-                    "dalam krisis atau memiliki pikiran untuk menyakiti diri sendiri, segera "
-                    "hubungi layanan darurat setempat atau hotline kesehatan jiwa "
-                    "(di Indonesia: **119 ext. 8**, Kemenkes). Kamu tidak sendirian."
+                st.markdown(
+                    """
+                    <div class="crisis-box footnote">
+                    <strong>Catatan penting:</strong> Jika kamu atau seseorang yang kamu kenal
+                    sedang dalam krisis atau memiliki pikiran untuk menyakiti diri sendiri,
+                    segera hubungi layanan darurat setempat atau hotline kesehatan jiwa
+                    (di Indonesia: <strong>119 ext. 8</strong>, Kemenkes). Kamu tidak sendirian.
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
                 )
 
-            with st.expander("🔍 Lihat detail teks setelah preprocessing"):
+            with st.expander("Lihat detail teks setelah preprocessing"):
                 st.code(clean if clean else "(hasil pembersihan kosong)", language=None)
 
-    st.write("")
-    st.write("")
-    st.caption("Dibangun dengan Streamlit · Model Stacking Ensemble (LR + SVM + XGBoost + CatBoost)")
+    st.markdown("<br/><br/>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="footnote" style="text-align:center; opacity:0.7;">
+        Dibangun dengan Streamlit · Model Stacking Ensemble (LR + SVM + XGBoost + CatBoost)
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == "__main__":
