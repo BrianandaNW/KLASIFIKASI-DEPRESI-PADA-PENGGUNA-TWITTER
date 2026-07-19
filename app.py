@@ -456,8 +456,16 @@ def main():
 
     with left:
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-label">Langkah 01</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Tulis atau tempel teks</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="display:flex; align-items:center; gap:0.7rem; margin-bottom:0.6rem;">'
+            '<div style="width:34px; height:34px; border-radius:50%; background:var(--deep-teal); '
+            'color:#f6f4ef; display:flex; align-items:center; justify-content:center; '
+            'font-family:Fraunces,serif; font-weight:600; font-size:1rem; flex-shrink:0;">01</div>'
+            '<div><div class="section-label" style="margin-bottom:0.1rem;">Langkah Pertama</div>'
+            '<div class="section-title" style="margin-bottom:0;">Tulis atau tempel teks</div></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
         example_prompt = st.selectbox(
             "Gunakan contoh (opsional)",
@@ -486,24 +494,35 @@ def main():
 
     with right:
         st.markdown('<div class="glass-card" style="height:100%;">', unsafe_allow_html=True)
-        st.markdown('<div class="section-label">Bagaimana cara kerjanya</div>', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">Alur Analisis</div>', unsafe_allow_html=True)
         st.markdown(
-            """
-            <div class="footnote">
-            <p><strong>1. Pembersihan teks</strong> — normalisasi, penghapusan
-            URL/mention/emoji, stopword removal, dan lemmatization.</p>
-            <p><strong>2. Ekstraksi fitur</strong> — representasi TF‑IDF (1–3 gram)
-            digabung dengan fitur linguistik (panjang teks, rasio huruf kapital,
-            polaritas &amp; subjektivitas sentimen).</p>
-            <p><strong>3. Seleksi fitur</strong> — pemilihan fitur paling informatif
-            melalui <em>mutual information</em>.</p>
-            <p><strong>4. Prediksi</strong> — model stacking ensemble menghasilkan
-            probabilitas indikasi depresi.</p>
-            </div>
-            """,
+            '<div style="display:flex; align-items:center; gap:0.7rem; margin-bottom:0.6rem;">'
+            '<div style="width:34px; height:34px; border-radius:50%; background:var(--gold); '
+            'color:#14181f; display:flex; align-items:center; justify-content:center; '
+            'font-family:Fraunces,serif; font-weight:600; font-size:1.1rem; flex-shrink:0;">✦</div>'
+            '<div><div class="section-label" style="margin-bottom:0.1rem;">Bagaimana Cara Kerjanya</div>'
+            '<div class="section-title" style="margin-bottom:0;">Alur Analisis</div></div>'
+            '</div>',
             unsafe_allow_html=True,
         )
+
+        steps = [
+            ("①", "Pembersihan teks", "Normalisasi, penghapusan URL/mention/emoji, stopword removal, dan lemmatization."),
+            ("②", "Ekstraksi fitur", "TF-IDF (1–3 gram) digabung fitur linguistik: panjang teks, rasio huruf kapital, polaritas & subjektivitas sentimen."),
+            ("③", "Seleksi fitur", "Pemilihan fitur paling informatif melalui mutual information."),
+            ("④", "Prediksi", "Model stacking ensemble menghasilkan probabilitas indikasi depresi."),
+        ]
+
+        for num, title, desc in steps:
+            st.markdown(
+                f'<div style="display:flex; gap:0.8rem; margin-bottom:0.9rem;">'
+                f'<div style="font-family:Fraunces,serif; font-size:1.1rem; color:var(--gold); '
+                f'flex-shrink:0; width:1.4rem;">{num}</div>'
+                f'<div><div style="font-weight:600; font-size:0.92rem; margin-bottom:0.15rem;">{title}</div>'
+                f'<div class="footnote" style="margin:0;">{desc}</div></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
         st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------------- RESULT ----------------
@@ -522,29 +541,35 @@ def main():
 
             prob_pct = round(prob * 100, 1) if prob is not None else None
 
-            # Bangun bagian progress bar secara TERPISAH agar tidak ada
-            # nested f-string di dalam f-string (penyebab HTML tampil mentah).
+            # ---------------------------------------------------------
+            # Kartu hasil: judul + deskripsi (HTML, styling penuh)
+            # ---------------------------------------------------------
+            st.markdown(
+                f'<div class="result-card {css_class}">'
+                f'<div class="result-label {css_class}">{icon}&nbsp;&nbsp;{label_text}</div>'
+                f'<div class="result-meta">Berdasarkan analisis pola linguistik dan sentimen '
+                f'pada teks yang diberikan.</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            # ---------------------------------------------------------
+            # Tingkat keyakinan: pakai st.progress bawaan Streamlit
+            # (lebih stabil ketimbang bar HTML custom) + label metrik.
+            # ---------------------------------------------------------
             if prob_pct is not None:
-                bar_html = f"""
-                <div class="prob-bar-track">
-                    <div class="prob-bar-fill {css_class}" style="width:{prob_pct}%;"></div>
-                </div>
-                <div class="result-meta"><strong>{prob_pct}%</strong> tingkat keyakinan model</div>
-                """
-            else:
-                bar_html = ""
-
-            result_html = f"""
-            <div class="result-card {css_class}">
-                <div class="result-label {css_class}">{icon}  {label_text}</div>
-                <div class="result-meta">
-                    Berdasarkan analisis pola linguistik dan sentimen pada teks yang diberikan.
-                </div>
-                {bar_html}
-            </div>
-            """
-
-            st.markdown(result_html, unsafe_allow_html=True)
+                st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
+                m_left, m_right = st.columns([0.75, 0.25])
+                with m_left:
+                    st.progress(min(max(prob / 1.0, 0.0), 1.0))
+                with m_right:
+                    st.markdown(
+                        f"<div style='text-align:right; font-family:Fraunces,serif; "
+                        f"font-size:1.15rem; font-weight:600; color:"
+                        f"{'#a3492c' if is_risk else '#1f3d3a'};'>{prob_pct}%</div>",
+                        unsafe_allow_html=True,
+                    )
+                st.caption("Tingkat keyakinan model terhadap prediksi di atas.")
 
             if is_risk and contains_crisis_language(user_text):
                 st.markdown(
