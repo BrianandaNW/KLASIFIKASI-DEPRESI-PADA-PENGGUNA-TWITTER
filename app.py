@@ -427,6 +427,7 @@ def main():
     st.markdown("<br/>", unsafe_allow_html=True)
 
     if missing:
+        missing_items = "".join(f"<li><code>{ARTIFACT_PATHS[m]}</code></li>" for m in missing)
         st.markdown(
             f"""
             <div class="glass-card">
@@ -437,7 +438,7 @@ def main():
                 aplikasi ini agar prediksi dapat berjalan:
                 </p>
                 <ul class="footnote">
-                {''.join(f"<li><code>{ARTIFACT_PATHS[m]}</code></li>" for m in missing)}
+                {missing_items}
                 </ul>
                 <p class="footnote">
                 File-file ini dihasilkan dari notebook penelitian
@@ -521,23 +522,29 @@ def main():
 
             prob_pct = round(prob * 100, 1) if prob is not None else None
 
-            st.markdown(
-                f"""
-                <div class="result-card {css_class}">
-                    <div class="result-label {css_class}">{icon}  {label_text}</div>
-                    <div class="result-meta">
-                        Berdasarkan analisis pola linguistik dan sentimen pada teks yang diberikan.
-                    </div>
-                    {f'''
-                    <div class="prob-bar-track">
-                        <div class="prob-bar-fill {css_class}" style="width:{prob_pct}%;"></div>
-                    </div>
-                    <div class="result-meta"><strong>{prob_pct}%</strong> tingkat keyakinan model</div>
-                    ''' if prob_pct is not None else ""}
+            # Bangun bagian progress bar secara TERPISAH agar tidak ada
+            # nested f-string di dalam f-string (penyebab HTML tampil mentah).
+            if prob_pct is not None:
+                bar_html = f"""
+                <div class="prob-bar-track">
+                    <div class="prob-bar-fill {css_class}" style="width:{prob_pct}%;"></div>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                <div class="result-meta"><strong>{prob_pct}%</strong> tingkat keyakinan model</div>
+                """
+            else:
+                bar_html = ""
+
+            result_html = f"""
+            <div class="result-card {css_class}">
+                <div class="result-label {css_class}">{icon}  {label_text}</div>
+                <div class="result-meta">
+                    Berdasarkan analisis pola linguistik dan sentimen pada teks yang diberikan.
+                </div>
+                {bar_html}
+            </div>
+            """
+
+            st.markdown(result_html, unsafe_allow_html=True)
 
             if is_risk and contains_crisis_language(user_text):
                 st.markdown(
